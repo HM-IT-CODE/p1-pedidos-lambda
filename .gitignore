@@ -1,0 +1,16 @@
+node_modules/
+dist/
+*.zip
+# Estado de OpenTofu: nunca a git (puede traer secretos). El .terraform.lock.hcl SÍ se sube.
+.terraform/
+*.tfstate
+*.tfstate.*
+# URL de la API de LocalStack (la escribe levantar-todo.sh, cambia en cada apply)
+url-api.txt
+# archivo vacio creado por error (systemctl corrido en CMD); borrar
+systemctl
+# binarios .NET
+**/bin/
+**/obj/
+**/.vs/
+scripts/auto/commit-msg.txt

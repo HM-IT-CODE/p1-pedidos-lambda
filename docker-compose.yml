@@ -1,0 +1,31 @@
+# Proyecto 1 — LocalStack = "AWS de mentira" en tu máquina.
+# Todo AWS (Lambda, DynamoDB, SQS, API Gateway...) responde en UN solo puerto: 4566.
+#
+# Ojo: usa el mismo puerto que el Lab 2. Levanta uno u otro, no los dos a la vez.
+services:
+  localstack:
+    image: localstack/localstack:3.8      # Community (Apache 2.0); fijado a propósito, ver README
+    ports:
+      - "4566:4566"
+    environment:
+      # Solo los servicios que usamos -> arranca más rápido y gasta menos RAM
+      SERVICES: lambda,dynamodb,sqs,apigateway,iam,sts,logs,cloudwatch
+      AWS_DEFAULT_REGION: us-east-1
+      # Cada Lambda arranca como un contenedor hermano. Esta es la red donde vivirá,
+      # para que desde dentro de la Lambda se pueda llegar a LocalStack (DynamoDB, SQS).
+      LAMBDA_DOCKER_NETWORK: p1-red
+      # Mantener el contenedor de la Lambda vivo 10 min tras usarse (evita "cold start" en cada prueba)
+      LAMBDA_KEEPALIVE_MS: "600000"
+      DEBUG: "0"
+    volumes:
+      # LocalStack habla con el Docker de WSL para crear los contenedores de las Lambdas
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf localhost:4566/_localstack/health | grep -q '\"lambda\"'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+networks:
+  default:
+    name: p1-red

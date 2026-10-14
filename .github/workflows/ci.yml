@@ -1,0 +1,104 @@
+# ═══ Paso 7: pipeline CI en GitHub Actions ═══════════════════════════════════
+# Cada push o pull request levanta una máquina Linux limpia en GitHub y hace,
+# EN ORDEN, lo mismo que tú hiciste a mano en los pasos 1-6:
+#
+#   job 1 "unitarias":   npm ci → typecheck → jest (mocks)            ~1 min
+#   job 2 "integracion": LocalStack (Docker) → build → tofu apply → jest contra lo desplegado
+#
+# Si algo falla, el commit queda en rojo y NO se despliega nada (paso 8).
+# Es el diagrama de LocalStack que trajiste: código → CI con LocalStack → (si pasa) AWS real.
+#
+# Diferencia con tu PC: aquí LocalStack corre en Docker de verdad (la máquina de GitHub lo trae);
+# en tu PC corre en mini. El código y las pruebas son LOS MISMOS.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:        # botón "Run workflow" para lanzarlo a mano
+
+# Si haces 3 push seguidos, cancela los viejos y corre solo el último
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  AWS_DEFAULT_REGION: us-east-1
+  AWS_REGION: us-east-1
+
+jobs:
+  unitarias:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20          # el mismo runtime de la Lambda (nodejs20.x)
+          cache: npm                # guarda node_modules entre corridas: npm ci más rápido
+
+      - run: npm ci                 # instala EXACTO lo del package-lock.json
+      - run: npm run typecheck      # TypeScript sin compilar: ¿hay errores de tipos?
+      - run: npm test               # pruebas unitarias (sin AWS)
+      - run: npm run build          # ¿esbuild empaqueta las Lambdas?
+
+  integracion:
+    needs: unitarias              # solo si las unitarias pasaron
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AWS_ENDPOINT_URL: http://localhost:4566
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # ─── LocalStack con soporte de Lambda ──────────────────────────────────
+      # Igual que tu comando de mini: le damos el socket de Docker para que pueda
+      # crear un contenedor por cada Lambda.
+      - name: Levantar LocalStack
+        run: |
+          docker run -d --name localstack -p 4566:4566 \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -e SERVICES=lambda,logs,dynamodb,sqs,iam,sts,apigateway \
+            -e AWS_DEFAULT_REGION=us-east-1 \
+            localstack/localstack:3.8
+          # Pre-descargar la imagen del runtime para que la 1.ª invocación no espere el pull
+          docker pull public.ecr.aws/lambda/nodejs:20 >/dev/null &
+          echo "esperando a LocalStack..."
+          for i in $(seq 1 60); do
+            curl -sf localhost:4566/_localstack/health >/dev/null && { echo "listo en ${i}x2 s"; exit 0; }
+            sleep 2
+          done
+          docker logs localstack | tail -50; exit 1
+
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.8.5
+          tofu_wrapper: false       # sin esto, `tofu output -json` sale con texto extra y las pruebas no lo leen
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: tofu apply (contra LocalStack)
+        working-directory: infra
+        run: |
+          tofu init -input=false
+          tofu apply -auto-approve -input=false
+
+      - name: Pruebas de integración
+        run: npm run test:integracion
+        env:
+          PRUEBA_DLQ: "1"           # en el CI sí esperamos los ~2 min de la DLQ
+
+      # Si algo falló, guardar lo que dijo LocalStack para poder investigar
+      - name: Logs de LocalStack (si falló)
+        if: failure()
+        run: docker logs localstack 2>&1 | tail -200
