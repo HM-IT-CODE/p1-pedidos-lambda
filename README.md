@@ -1,6 +1,10 @@
 # Proyecto 1 — Pedidos serverless: API Gateway + Lambda + DynamoDB + SQS (+ CI/CD)
 
-Construido **paso a paso**: Henry mira el código en VS Code, Claude lo programa y explica.
+[![ci](https://github.com/HM-IT-CODE/p1-pedidos-lambda/actions/workflows/ci.yml/badge.svg)](https://github.com/HM-IT-CODE/p1-pedidos-lambda/actions/workflows/ci.yml)
+
+Laboratorio de arquitectura serverless, hecho con asistencia de IA y probado de punta a punta en
+LocalStack (corriendo sobre [mini](../mini-docker), un runtime de contenedores propio) y en AWS real.
+El código está comentado en español para servir como material de estudio.
 
 ## Arquitectura (a dónde vamos)
 
